@@ -204,7 +204,7 @@
 </head>
 <body>
 
-<h1>Conway's Game of Life</h1>
+<h1 id="appTitle">Conway's Game of Life</h1>
 
 <div class="app">
   <canvas id="canvas"></canvas>
@@ -313,19 +313,143 @@
   gCtx.stroke();
 
   // ── state ─────────────────────────────────────────────────────────────────────
-  // Use Uint8Array rows for fast neighbor lookup
-  function makeGrid() {
-    return Array.from({ length: ROWS }, () => new Uint8Array(COLS));
-  }
-
-  let grid       = makeGrid();
+  // Use Uint32Array for WebGPU compatibility (u32 alignment)
+  // Flat array: index = y * COLS + x
+  let grid       = new Uint32Array(ROWS * COLS);
   let generation = 0;
   let running    = false;
   let animId     = null;
   let lastTime   = 0;
   let stepsPerSec = 8;
 
+  // WebGPU state
+  let device, computePipeline, bindGroup0, bindGroup1;
+  let buffer0, buffer1, stagingBuffer; // Ping-pong buffers + staging
+  let usingWebGPU = false;
+  let bufferState = 0; // 0: buffer0 is current, 1: buffer1 is current
+
+  // ── webgpu init ───────────────────────────────────────────────────────────────
+  const SHADER_CODE = `
+    struct Params {
+      width  : u32,
+      height : u32,
+    };
+
+    @group(0) @binding(0) var<uniform> params : Params;
+    @group(0) @binding(1) var<storage, read> input  : array<u32>;
+    @group(0) @binding(2) var<storage, read_write> output : array<u32>;
+
+    fn get_idx(x: u32, y: u32) -> u32 {
+      return y * params.width + x;
+    }
+
+    @compute @workgroup_size(8, 8)
+    fn main(@builtin(global_invocation_id) global_id : vec3<u32>) {
+      let x = global_id.x;
+      let y = global_id.y;
+
+      if (x >= params.width || y >= params.height) {
+        return;
+      }
+
+      let idx = get_idx(x, y);
+      let current = input[idx];
+
+      var neighbors = 0u;
+      for (var dy = -1; dy <= 1; dy++) {
+        for (var dx = -1; dx <= 1; dx++) {
+          if (dx == 0 && dy == 0) { continue; }
+          
+          let nx = i32(x) + dx;
+          let ny = i32(y) + dy;
+
+          if (nx >= 0 && nx < i32(params.width) && ny >= 0 && ny < i32(params.height)) {
+             neighbors += input[get_idx(u32(nx), u32(ny))];
+          }
+        }
+      }
+
+      var next_state = 0u;
+      if (current == 1u) {
+        if (neighbors == 2u || neighbors == 3u) { next_state = 1u; }
+      } else {
+        if (neighbors == 3u) { next_state = 1u; }
+      }
+      
+      output[idx] = next_state;
+    }
+  `;
+
+  async function initWebGPU() {
+    if (!navigator.gpu) {
+      console.log("WebGPU not supported, falling back to CPU.");
+      return;
+    }
+
+    try {
+      const adapter = await navigator.gpu.requestAdapter();
+      if (!adapter) throw new Error("No adapter");
+      device = await adapter.requestDevice();
+
+      // Create buffers
+      const gridSize = ROWS * COLS * 4; // u32 = 4 bytes
+      buffer0 = device.createBuffer({ size: gridSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC });
+      buffer1 = device.createBuffer({ size: gridSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC });
+      
+      // Reusable staging buffer for reading back data
+      stagingBuffer = device.createBuffer({
+        size: gridSize,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+      });
+
+      const paramBuf = device.createBuffer({ size: 8, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+      device.queue.writeBuffer(paramBuf, 0, new Uint32Array([COLS, ROWS]));
+
+      // Pipeline
+      const module = device.createShaderModule({ code: SHADER_CODE });
+      computePipeline = device.createComputePipeline({
+        layout: 'auto',
+        compute: { module, entryPoint: 'main' }
+      });
+
+      // Bind Groups (Ping-Pong)
+      // Group 0: Read buffer0, Write buffer1
+      bindGroup0 = device.createBindGroup({
+        layout: computePipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: paramBuf } },
+          { binding: 1, resource: { buffer: buffer0 } },
+          { binding: 2, resource: { buffer: buffer1 } }
+        ]
+      });
+
+      // Group 1: Read buffer1, Write buffer0
+      bindGroup1 = device.createBindGroup({
+        layout: computePipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: paramBuf } },
+          { binding: 1, resource: { buffer: buffer1 } },
+          { binding: 2, resource: { buffer: buffer0 } }
+        ]
+      });
+
+      usingWebGPU = true;
+      console.log("WebGPU initialized.");
+      document.getElementById('appTitle').innerHTML = 'Conway\'s Game of Life <span style="font-size: 0.6em; color: #22c55e; vertical-align: middle; margin-left: 10px;">[GPU]</span>';
+      
+      // Initial upload
+      device.queue.writeBuffer(buffer0, 0, grid);
+
+    } catch (e) {
+      console.error("WebGPU init failed:", e);
+      usingWebGPU = false;
+    }
+  }
+
+  initWebGPU();
+
   // ── logic ─────────────────────────────────────────────────────────────────────
+  // CPU Fallback logic
   function nbCount(g, r, c) {
     let n = 0;
     for (let dr = -1; dr <= 1; dr++) {
@@ -334,21 +458,66 @@
       for (let dc = -1; dc <= 1; dc++) {
         if (dr === 0 && dc === 0) continue;
         const nc = c + dc;
-        if (nc >= 0 && nc < COLS) n += g[nr][nc];
+        if (nc >= 0 && nc < COLS) {
+          n += g[nr * COLS + nc];
+        }
       }
     }
     return n;
   }
 
-  function step() {
-    const next = makeGrid();
-    for (let r = 0; r < ROWS; r++)
+  function stepCPU() {
+    const next = new Uint32Array(ROWS * COLS);
+    for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
+        const idx = r * COLS + c;
         const n = nbCount(grid, r, c);
-        next[r][c] = grid[r][c] ? (n === 2 || n === 3 ? 1 : 0) : (n === 3 ? 1 : 0);
+        const cell = grid[idx];
+        next[idx] = cell ? (n === 2 || n === 3 ? 1 : 0) : (n === 3 ? 1 : 0);
       }
+    }
     grid = next;
     generation++;
+  }
+
+  async function stepGPU() {
+    // Current input buffer is bufferState (0 or 1)
+    // We want to write to the other one.
+    const bindGroup = bufferState === 0 ? bindGroup0 : bindGroup1;
+    
+    const commandEncoder = device.createCommandEncoder();
+    const passEncoder = commandEncoder.beginComputePass();
+    passEncoder.setPipeline(computePipeline);
+    passEncoder.setBindGroup(0, bindGroup);
+    // Workgroups: ceil(COLS/8), ceil(ROWS/8)
+    passEncoder.dispatchWorkgroups(Math.ceil(COLS / 8), Math.ceil(ROWS / 8));
+    passEncoder.end();
+
+    // Copy result back to staging buffer to read
+    // The result is in the *destination* buffer of the current pass.
+    // If bufferState was 0 (Input=B0, Output=B1), result is in B1.
+    const resultBuffer = bufferState === 0 ? buffer1 : buffer0;
+    
+    commandEncoder.copyBufferToBuffer(resultBuffer, 0, stagingBuffer, 0, grid.byteLength);
+
+    device.queue.submit([commandEncoder.finish()]);
+
+    await stagingBuffer.mapAsync(GPUMapMode.READ);
+    const copyArrayBuffer = stagingBuffer.getMappedRange();
+    grid.set(new Uint32Array(copyArrayBuffer));
+    stagingBuffer.unmap();
+    
+    // Flip buffer state for next frame
+    bufferState = 1 - bufferState;
+    generation++;
+  }
+
+  async function step() {
+    if (usingWebGPU) {
+      await stepGPU();
+    } else {
+      stepCPU();
+    }
   }
 
   // ── rendering ─────────────────────────────────────────────────────────────────
@@ -361,11 +530,16 @@
     let alive = 0;
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
-        if (!grid[r][c]) continue;
+        const idx = r * COLS + c;
+        if (!grid[idx]) continue;
         alive++;
+        
+        // For color, we still need neighbor count. 
+        // Note: CPU calculation for color is fast enough for rendering.
         const n = nbCount(grid, r, c);
+        
         const x = c * CELL, y = r * CELL;
-        ctx.fillStyle = NEIGHBOR_COLORS[n];
+        ctx.fillStyle = NEIGHBOR_COLORS[n] || NEIGHBOR_COLORS[8];
         ctx.fillRect(x, y, CELL, CELL);
         ctx.strokeStyle = '#000';
         ctx.lineWidth   = 1.5;
@@ -385,13 +559,16 @@
     if (!running) return;
     const interval = 1000 / stepsPerSec;
     if (time - lastTime >= interval) {
-      // run at most 8 catch-up steps so we don't freeze on tab-switch
-      const burst = Math.min(Math.floor((time - lastTime) / interval), 8);
-      for (let i = 0; i < burst; i++) step();
-      draw();
-      lastTime = time;
+      // Async step needs handling
+      // We process one step per frame-check to keep it simple with async GPU
+      step().then(() => {
+        draw();
+        lastTime = time;
+        animId = requestAnimationFrame(loop);
+      });
+    } else {
+      animId = requestAnimationFrame(loop);
     }
-    animId = requestAnimationFrame(loop);
   }
 
   // ── mouse ─────────────────────────────────────────────────────────────────────
@@ -401,19 +578,30 @@
     return { r: Math.floor(e.offsetY / CELL), c: Math.floor(e.offsetX / CELL) };
   }
 
+  function updateCell(r, c, val) {
+    if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return;
+    grid[r * COLS + c] = val;
+    // If using GPU, we must update the current input buffer
+    if (usingWebGPU) {
+      const currentBuffer = bufferState === 0 ? buffer0 : buffer1;
+      device.queue.writeBuffer(currentBuffer, (r * COLS + c) * 4, new Uint32Array([val]));
+    }
+  }
+
   canvas.addEventListener('mousedown', e => {
     const { r, c } = cellAt(e);
-    if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return;
-    paintMode  = grid[r][c] === 0 ? 1 : 0;
-    painting   = true;
-    grid[r][c] = paintMode;
-    draw();
+    const idx = r * COLS + c;
+    if (idx >= 0 && idx < grid.length) {
+      paintMode  = grid[idx] === 0 ? 1 : 0;
+      painting   = true;
+      updateCell(r, c, paintMode);
+      draw();
+    }
   });
   canvas.addEventListener('mousemove', e => {
     if (!painting) return;
     const { r, c } = cellAt(e);
-    if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return;
-    grid[r][c] = paintMode;
+    updateCell(r, c, paintMode);
     draw();
   });
   canvas.addEventListener('mouseup',    () => { painting = false; });
@@ -428,31 +616,45 @@
     document.getElementById('btnStop').disabled  = !val;
   }
 
-  document.getElementById('btnStep').addEventListener('click', () => { step(); draw(); });
+  document.getElementById('btnStep').addEventListener('click', () => { 
+    step().then(draw); 
+  });
 
   document.getElementById('btnRun').addEventListener('click', () => {
     setRunning(true);
     lastTime = performance.now();
-    animId   = requestAnimationFrame(loop);
+    loop(lastTime); // loop handles requestAnimationFrame
   });
 
   document.getElementById('btnStop').addEventListener('click', () => {
     setRunning(false);
-    cancelAnimationFrame(animId);
+    if (animId) cancelAnimationFrame(animId);
   });
 
   document.getElementById('btnClear').addEventListener('click', () => {
     setRunning(false);
-    cancelAnimationFrame(animId);
-    grid = makeGrid();
+    if (animId) cancelAnimationFrame(animId);
+    grid.fill(0);
     generation = 0;
+    // Sync to GPU
+    if (usingWebGPU) {
+      device.queue.writeBuffer(buffer0, 0, grid);
+      device.queue.writeBuffer(buffer1, 0, grid);
+      bufferState = 0;
+    }
     draw();
   });
 
   document.getElementById('btnRandom').addEventListener('click', () => {
-    for (let r = 0; r < ROWS; r++)
-      for (let c = 0; c < COLS; c++)
-        grid[r][c] = Math.random() < 0.3 ? 1 : 0;
+    for (let i = 0; i < grid.length; i++) {
+        grid[i] = Math.random() < 0.3 ? 1 : 0;
+    }
+    // Sync to GPU
+    if (usingWebGPU) {
+      device.queue.writeBuffer(buffer0, 0, grid);
+      device.queue.writeBuffer(buffer1, 0, grid);
+      bufferState = 0;
+    }
     draw();
   });
 
