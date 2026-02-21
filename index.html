@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>Conway's Game of Life</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0f0f1a;
+      color: #dde;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      gap: 16px;
+    }
+
+    h1 {
+      font-size: 17px;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      color: #7ab8f5;
+    }
+
+    .app {
+      display: flex;
+      gap: 18px;
+      align-items: flex-start;
+    }
+
+    canvas {
+      border: 1px solid #2a2a4a;
+      border-radius: 4px;
+      cursor: crosshair;
+      display: block;
+      flex-shrink: 0;
+    }
+
+    /* ── right panel ── */
+    .panel {
+      width: 190px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .card {
+      background: #161630;
+      border: 1px solid #252550;
+      border-radius: 8px;
+      padding: 12px 14px;
+    }
+
+    .card-title {
+      font-size: 9px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: #445;
+      margin-bottom: 10px;
+    }
+
+    /* stats */
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-size: 13px;
+      color: #99a;
+      margin-bottom: 5px;
+    }
+    .stat-row:last-child { margin-bottom: 0; }
+    .stat-val { color: #7ecfff; font-weight: 700; font-size: 15px; }
+
+    /* buttons */
+    .btn-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+
+    button {
+      padding: 7px 6px;
+      font-size: 12px;
+      font-family: inherit;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      transition: opacity 0.12s, transform 0.08s;
+    }
+    button:active:not(:disabled) { transform: scale(0.95); }
+    button:hover:not(:disabled)  { opacity: 0.82; }
+    button:disabled { opacity: 0.28; cursor: default; }
+
+    #btnStep   { background: #3b82f6; color: #fff; }
+    #btnClear  { background: #6b7280; color: #fff; }
+    #btnRun    { background: #22c55e; color: #fff; }
+    #btnStop   { background: #ef4444; color: #fff; }
+    #btnRandom { background: #a855f7; color: #fff; grid-column: span 2; }
+
+    /* speed slider */
+    .slider-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    input[type=range] {
+      flex: 1;
+      accent-color: #3b82f6;
+      cursor: pointer;
+      height: 4px;
+    }
+    .speed-label {
+      min-width: 38px;
+      text-align: right;
+      font-size: 12px;
+      color: #7ecfff;
+      font-weight: 700;
+    }
+
+    /* legend */
+    .legend-grid {
+      display: grid;
+      grid-template-columns: repeat(9, 1fr);
+      gap: 3px;
+    }
+    .legend-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
+    .lc {
+      width: 100%;
+      aspect-ratio: 1;
+      border-radius: 2px;
+      border: 1px solid #333;
+    }
+    .ln { font-size: 8px; color: #556; }
+
+    /* hint */
+    .hint { font-size: 10px; color: #334; }
+  </style>
+</head>
+<body>
+
+<h1>Conway's Game of Life</h1>
+
+<div class="app">
+  <canvas id="canvas"></canvas>
+
+  <div class="panel">
+
+    <div class="card">
+      <div class="card-title">Status</div>
+      <div class="stat-row">
+        <span>Lebende Zellen</span>
+        <span class="stat-val" id="cellCount">0</span>
+      </div>
+      <div class="stat-row">
+        <span>Generationen</span>
+        <span class="stat-val" id="genCount">0</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Steuerung</div>
+      <div class="btn-grid">
+        <button id="btnStep">Step</button>
+        <button id="btnClear">Clear</button>
+        <button id="btnRun">Run</button>
+        <button id="btnStop" disabled>Stop</button>
+        <button id="btnRandom">Zufällig</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Geschwindigkeit</div>
+      <div class="slider-wrap">
+        <input type="range" id="speedSlider" min="1" max="30" value="8">
+        <span class="speed-label"><span id="speedVal">8</span>/s</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Nachbarn</div>
+      <div class="legend-grid" id="legendGrid"></div>
+    </div>
+
+  </div>
+</div>
+
+<div class="hint">Klicken &amp; ziehen zum Setzen / Löschen</div>
+
+<script>
+  const COLS = 100;
+  const ROWS = 60;
+  const CELL = 12;
+
+  const NEIGHBOR_COLORS = [
+    '#cfd8dc', '#80deea', '#4db6ac', '#81c784',
+    '#fff176', '#ffb74d', '#ff8a65', '#e57373', '#d32f2f',
+  ];
+  const DEAD_COLOR = '#0d1117';
+
+  // ── canvas ────────────────────────────────────────────────────────────────────
+  const canvas = document.getElementById('canvas');
+  const ctx    = canvas.getContext('2d');
+  const W = COLS * CELL + 1;
+  const H = ROWS * CELL + 1;
+  canvas.width  = W;
+  canvas.height = H;
+
+  // Pre-render grid lines once onto an offscreen canvas
+  const gridOff = Object.assign(document.createElement('canvas'), { width: W, height: H });
+  const gCtx    = gridOff.getContext('2d');
+  gCtx.strokeStyle = 'rgba(255,255,255,0.28)';
+  gCtx.lineWidth   = 0.5;
+  gCtx.beginPath();
+  for (let c = 0; c <= COLS; c++) { gCtx.moveTo(c*CELL+0.5, 0); gCtx.lineTo(c*CELL+0.5, H); }
+  for (let r = 0; r <= ROWS; r++) { gCtx.moveTo(0, r*CELL+0.5); gCtx.lineTo(W, r*CELL+0.5); }
+  gCtx.stroke();
+
+  // ── state ─────────────────────────────────────────────────────────────────────
+  // Use Uint8Array rows for fast neighbor lookup
+  function makeGrid() {
+    return Array.from({ length: ROWS }, () => new Uint8Array(COLS));
+  }
+
+  let grid       = makeGrid();
+  let generation = 0;
+  let running    = false;
+  let animId     = null;
+  let lastTime   = 0;
+  let stepsPerSec = 8;
+
+  // ── logic ─────────────────────────────────────────────────────────────────────
+  function nbCount(g, r, c) {
+    let n = 0;
+    for (let dr = -1; dr <= 1; dr++) {
+      const nr = r + dr;
+      if (nr < 0 || nr >= ROWS) continue;
+      for (let dc = -1; dc <= 1; dc++) {
+        if (dr === 0 && dc === 0) continue;
+        const nc = c + dc;
+        if (nc >= 0 && nc < COLS) n += g[nr][nc];
+      }
+    }
+    return n;
+  }
+
+  function step() {
+    const next = makeGrid();
+    for (let r = 0; r < ROWS; r++)
+      for (let c = 0; c < COLS; c++) {
+        const n = nbCount(grid, r, c);
+        next[r][c] = grid[r][c] ? (n === 2 || n === 3 ? 1 : 0) : (n === 3 ? 1 : 0);
+      }
+    grid = next;
+    generation++;
+  }
+
+  // ── rendering ─────────────────────────────────────────────────────────────────
+  function draw() {
+    // background (dead cells)
+    ctx.fillStyle = DEAD_COLOR;
+    ctx.fillRect(0, 0, W, H);
+
+    // alive cells only
+    let alive = 0;
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (!grid[r][c]) continue;
+        alive++;
+        const n = nbCount(grid, r, c);
+        const x = c * CELL, y = r * CELL;
+        ctx.fillStyle = NEIGHBOR_COLORS[n];
+        ctx.fillRect(x, y, CELL, CELL);
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth   = 1.5;
+        ctx.strokeRect(x + 0.75, y + 0.75, CELL - 1.5, CELL - 1.5);
+      }
+    }
+
+    // composite pre-rendered grid lines
+    ctx.drawImage(gridOff, 0, 0);
+
+    document.getElementById('cellCount').textContent = alive;
+    document.getElementById('genCount').textContent  = generation;
+  }
+
+  // ── run loop ──────────────────────────────────────────────────────────────────
+  function loop(time) {
+    if (!running) return;
+    const interval = 1000 / stepsPerSec;
+    if (time - lastTime >= interval) {
+      // run at most 4 catch-up steps so we don't freeze on tab-switch
+      const burst = Math.min(Math.floor((time - lastTime) / interval), 4);
+      for (let i = 0; i < burst; i++) step();
+      draw();
+      lastTime = time;
+    }
+    animId = requestAnimationFrame(loop);
+  }
+
+  // ── mouse ─────────────────────────────────────────────────────────────────────
+  let painting = false, paintMode = 1;
+
+  function cellAt(e) {
+    return { r: Math.floor(e.offsetY / CELL), c: Math.floor(e.offsetX / CELL) };
+  }
+
+  canvas.addEventListener('mousedown', e => {
+    const { r, c } = cellAt(e);
+    if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return;
+    paintMode  = grid[r][c] === 0 ? 1 : 0;
+    painting   = true;
+    grid[r][c] = paintMode;
+    draw();
+  });
+  canvas.addEventListener('mousemove', e => {
+    if (!painting) return;
+    const { r, c } = cellAt(e);
+    if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return;
+    grid[r][c] = paintMode;
+    draw();
+  });
+  canvas.addEventListener('mouseup',    () => { painting = false; });
+  canvas.addEventListener('mouseleave', () => { painting = false; });
+  canvas.addEventListener('dragstart',  e => e.preventDefault());
+
+  // ── buttons ───────────────────────────────────────────────────────────────────
+  function setRunning(val) {
+    running = val;
+    document.getElementById('btnRun').disabled   = val;
+    document.getElementById('btnStep').disabled  = val;
+    document.getElementById('btnStop').disabled  = !val;
+  }
+
+  document.getElementById('btnStep').addEventListener('click', () => { step(); draw(); });
+
+  document.getElementById('btnRun').addEventListener('click', () => {
+    setRunning(true);
+    lastTime = performance.now();
+    animId   = requestAnimationFrame(loop);
+  });
+
+  document.getElementById('btnStop').addEventListener('click', () => {
+    setRunning(false);
+    cancelAnimationFrame(animId);
+  });
+
+  document.getElementById('btnClear').addEventListener('click', () => {
+    setRunning(false);
+    cancelAnimationFrame(animId);
+    grid = makeGrid();
+    generation = 0;
+    draw();
+  });
+
+  document.getElementById('btnRandom').addEventListener('click', () => {
+    for (let r = 0; r < ROWS; r++)
+      for (let c = 0; c < COLS; c++)
+        grid[r][c] = Math.random() < 0.3 ? 1 : 0;
+    draw();
+  });
+
+  // ── speed slider ──────────────────────────────────────────────────────────────
+  const slider = document.getElementById('speedSlider');
+  slider.addEventListener('input', () => {
+    stepsPerSec = +slider.value;
+    document.getElementById('speedVal').textContent = stepsPerSec;
+  });
+
+  // ── legend ────────────────────────────────────────────────────────────────────
+  const legendGrid = document.getElementById('legendGrid');
+  NEIGHBOR_COLORS.forEach((color, i) => {
+    const el = document.createElement('div');
+    el.className = 'legend-item';
+    el.innerHTML = `<div class="lc" style="background:${color}"></div><div class="ln">${i}</div>`;
+    legendGrid.appendChild(el);
+  });
+
+  // ── init ──────────────────────────────────────────────────────────────────────
+  draw();
+</script>
+</body>
+</html>
