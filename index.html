@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <title>Conway's Game of Life</title>
+  <title>Conway's Game of Life (WebGL)</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -145,11 +145,24 @@
 
     /* hint */
     .hint { font-size: 10px; color: #334; }
+
+    /* portrait */
+    .portrait {
+      position: fixed;
+      bottom: 16px;
+      right: 16px;
+      width: 160px;
+      height: 160px;
+      object-fit: cover;
+      border-radius: 50%;
+      border: 2px solid #2a2a4a;
+      filter: url(#solarize);
+    }
   </style>
 </head>
 <body>
 
-<h1>Conway's Game of Life</h1>
+<h1>Conway's Game of Life (WebGL)</h1>
 
 <div class="app">
   <canvas id="canvas"></canvas>
@@ -197,6 +210,20 @@
 
 <div class="hint">Klicken &amp; ziehen zum Setzen / Löschen</div>
 
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <filter id="solarize">
+      <feComponentTransfer>
+        <feFuncR type="table" tableValues="0 0.2 0.4 0.6 0.8 1 0.8 0.6 0.4 0.2 0"/>
+        <feFuncG type="table" tableValues="0 0.2 0.4 0.6 0.8 1 0.8 0.6 0.4 0.2 0"/>
+        <feFuncB type="table" tableValues="0 0.2 0.4 0.6 0.8 1 0.8 0.6 0.4 0.2 0"/>
+      </feComponentTransfer>
+    </filter>
+  </defs>
+</svg>
+
+<img src="portrait.jpeg" alt="Portrait" class="portrait">
+
 <script>
   const COLS = 100;
   const ROWS = 60;
@@ -206,100 +233,207 @@
     '#cfd8dc', '#80deea', '#4db6ac', '#81c784',
     '#fff176', '#ffb74d', '#ff8a65', '#e57373', '#d32f2f',
   ];
-  const DEAD_COLOR = '#0d1117';
 
-  // ── canvas ────────────────────────────────────────────────────────────────────
   const canvas = document.getElementById('canvas');
-  const ctx    = canvas.getContext('2d');
   const W = COLS * CELL + 1;
   const H = ROWS * CELL + 1;
   canvas.width  = W;
   canvas.height = H;
 
-  // Pre-render grid lines once onto an offscreen canvas
-  const gridOff = Object.assign(document.createElement('canvas'), { width: W, height: H });
-  const gCtx    = gridOff.getContext('2d');
-  gCtx.strokeStyle = 'rgba(255,255,255,0.28)';
-  gCtx.lineWidth   = 0.5;
-  gCtx.beginPath();
-  for (let c = 0; c <= COLS; c++) { gCtx.moveTo(c*CELL+0.5, 0); gCtx.lineTo(c*CELL+0.5, H); }
-  for (let r = 0; r <= ROWS; r++) { gCtx.moveTo(0, r*CELL+0.5); gCtx.lineTo(W, r*CELL+0.5); }
-  gCtx.stroke();
+  const gl = canvas.getContext('webgl2');
+  if (!gl) alert('WebGL2 nicht verfügbar');
 
-  // ── state ─────────────────────────────────────────────────────────────────────
-  // Use Uint8Array rows for fast neighbor lookup
-  function makeGrid() {
-    return Array.from({ length: ROWS }, () => new Uint8Array(COLS));
+  // ── shaders ───────────────────────────────────────────────────────────────────
+  function compileShader(type, src) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+      throw new Error(gl.getShaderInfoLog(s));
+    return s;
   }
 
-  let grid       = makeGrid();
-  let generation = 0;
-  let running    = false;
-  let animId     = null;
-  let lastTime   = 0;
-  let stepsPerSec = 8;
+  function createProgram(vsSrc, fsSrc) {
+    const p = gl.createProgram();
+    gl.attachShader(p, compileShader(gl.VERTEX_SHADER, vsSrc));
+    gl.attachShader(p, compileShader(gl.FRAGMENT_SHADER, fsSrc));
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS))
+      throw new Error(gl.getProgramInfoLog(p));
+    return p;
+  }
 
-  // ── logic ─────────────────────────────────────────────────────────────────────
-  function nbCount(g, r, c) {
-    let n = 0;
-    for (let dr = -1; dr <= 1; dr++) {
-      const nr = r + dr;
-      if (nr < 0 || nr >= ROWS) continue;
-      for (let dc = -1; dc <= 1; dc++) {
-        if (dr === 0 && dc === 0) continue;
-        const nc = c + dc;
-        if (nc >= 0 && nc < COLS) n += g[nr][nc];
+  const VS = `#version 300 es
+in vec2 a_pos;
+void main() { gl_Position = vec4(a_pos, 0.0, 1.0); }`;
+
+  const simFS = `#version 300 es
+precision mediump float;
+uniform sampler2D u_cells;
+out vec4 fragColor;
+const ivec2 SIZE = ivec2(${COLS}, ${ROWS});
+void main() {
+  ivec2 fc = ivec2(gl_FragCoord.xy);
+  int n = 0;
+  for(int dy = -1; dy <= 1; dy++) {
+    for(int dx = -1; dx <= 1; dx++) {
+      if(dx == 0 && dy == 0) continue;
+      ivec2 nb = fc + ivec2(dx, dy);
+      if(nb.x >= 0 && nb.x < SIZE.x && nb.y >= 0 && nb.y < SIZE.y) {
+        if(texelFetch(u_cells, nb, 0).r > 0.5) n++;
       }
     }
-    return n;
+  }
+  bool alive = texelFetch(u_cells, fc, 0).r > 0.5;
+  bool next  = alive ? (n == 2 || n == 3) : (n == 3);
+  fragColor  = vec4(next ? 1.0 : 0.0, 0.0, 0.0, 1.0);
+}`;
+
+  const renderFS = `#version 300 es
+precision mediump float;
+uniform sampler2D u_cells;
+out vec4 fragColor;
+const int   COLS   = ${COLS};
+const int   ROWS   = ${ROWS};
+const float CELL_F = ${CELL}.0;
+const float H_F    = ${H}.0;
+void main() {
+  float px = gl_FragCoord.x;
+  float py = H_F - gl_FragCoord.y;
+  int col = clamp(int(px / CELL_F), 0, COLS - 1);
+  int row = clamp(int(py / CELL_F), 0, ROWS - 1);
+  ivec2 gridPos = ivec2(col, row);
+  float sx = mod(px, CELL_F);
+  float sy = mod(py, CELL_F);
+  bool alive = texelFetch(u_cells, gridPos, 0).r > 0.5;
+  int n = 0;
+  for(int dy = -1; dy <= 1; dy++) {
+    for(int dx = -1; dx <= 1; dx++) {
+      if(dx == 0 && dy == 0) continue;
+      ivec2 nb = gridPos + ivec2(dx, dy);
+      if(nb.x >= 0 && nb.x < COLS && nb.y >= 0 && nb.y < ROWS) {
+        if(texelFetch(u_cells, nb, 0).r > 0.5) n++;
+      }
+    }
+  }
+  vec3 nc[9];
+  nc[0]=vec3(0.812,0.847,0.863); nc[1]=vec3(0.502,0.871,0.918); nc[2]=vec3(0.302,0.714,0.675);
+  nc[3]=vec3(0.506,0.780,0.518); nc[4]=vec3(1.000,0.945,0.463); nc[5]=vec3(1.000,0.718,0.302);
+  nc[6]=vec3(1.000,0.541,0.396); nc[7]=vec3(0.898,0.451,0.451); nc[8]=vec3(0.827,0.184,0.184);
+  vec3 dead = vec3(0.051, 0.067, 0.090);
+  vec3 color = dead;
+  if (alive) {
+    bool border = sx < 2.0 || sx > CELL_F - 2.0 || sy < 2.0 || sy > CELL_F - 2.0;
+    color = border ? vec3(0.0) : nc[n];
+  }
+  if (sx < 1.0 || sy < 1.0) color = mix(color, vec3(1.0), 0.28);
+  fragColor = vec4(color, 1.0);
+}`;
+
+  const simProg    = createProgram(VS, simFS);
+  const renderProg = createProgram(VS, renderFS);
+
+  // ── quad ──────────────────────────────────────────────────────────────────────
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  const vbuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbuf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]), gl.STATIC_DRAW);
+  const aPosLoc = gl.getAttribLocation(renderProg, 'a_pos');
+  gl.enableVertexAttribArray(aPosLoc);
+  gl.vertexAttribPointer(aPosLoc, 2, gl.FLOAT, false, 0, 0);
+
+  // ── textures & fbos ───────────────────────────────────────────────────────────
+  function createTexture() {
+    const t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, COLS, ROWS, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    return t;
+  }
+  function createFBO(tex) {
+    const fbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    return fbo;
+  }
+
+  let tex0 = createTexture(), tex1 = createTexture();
+  let fbo0 = createFBO(tex0), fbo1 = createFBO(tex1);
+  let currentTex = tex0, nextFBO = fbo1, nextTex = tex1;
+
+  function swap() {
+    [currentTex, nextTex] = [nextTex, currentTex];
+    nextFBO = (currentTex === tex0) ? fbo1 : fbo0;
+  }
+
+  // ── state ─────────────────────────────────────────────────────────────────────
+  let generation = 0, running = false, animId = null, lastTime = 0, stepsPerSec = 8;
+  const texData = new Uint8Array(COLS * ROWS * 4);
+
+  function uploadGrid(grid) {
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const idx = (r * COLS + c) * 4;
+        texData[idx] = grid[r][c] ? 255 : 0;
+        texData[idx+1] = 0;
+        texData[idx+2] = 0;
+        texData[idx+3] = 255;
+      }
+    }
+    gl.bindTexture(gl.TEXTURE_2D, currentTex);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, COLS, ROWS, gl.RGBA, gl.UNSIGNED_BYTE, texData);
+  }
+
+  function downloadGrid() {
+    const fbo = (currentTex === tex0) ? fbo0 : fbo1;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.readPixels(0, 0, COLS, ROWS, gl.RGBA, gl.UNSIGNED_BYTE, texData);
+    let alive = 0;
+    const grid = Array.from({ length: ROWS }, () => new Uint8Array(COLS));
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (texData[(r * COLS + c) * 4] > 128) { grid[r][c] = 1; alive++; }
+      }
+    }
+    return { grid, alive };
   }
 
   function step() {
-    const next = makeGrid();
-    for (let r = 0; r < ROWS; r++)
-      for (let c = 0; c < COLS; c++) {
-        const n = nbCount(grid, r, c);
-        next[r][c] = grid[r][c] ? (n === 2 || n === 3 ? 1 : 0) : (n === 3 ? 1 : 0);
-      }
-    grid = next;
+    gl.useProgram(simProg);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, nextFBO);
+    gl.viewport(0, 0, COLS, ROWS);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, currentTex);
+    gl.uniform1i(gl.getUniformLocation(simProg, 'u_cells'), 0);
+    gl.bindVertexArray(vao);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    swap();
     generation++;
   }
 
-  // ── rendering ─────────────────────────────────────────────────────────────────
   function draw() {
-    // background (dead cells)
-    ctx.fillStyle = DEAD_COLOR;
-    ctx.fillRect(0, 0, W, H);
+    gl.useProgram(renderProg);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, W, H);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, currentTex);
+    gl.uniform1i(gl.getUniformLocation(renderProg, 'u_cells'), 0);
+    gl.bindVertexArray(vao);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
 
-    // alive cells only
-    let alive = 0;
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
-        if (!grid[r][c]) continue;
-        alive++;
-        const n = nbCount(grid, r, c);
-        const x = c * CELL, y = r * CELL;
-        ctx.fillStyle = NEIGHBOR_COLORS[n];
-        ctx.fillRect(x, y, CELL, CELL);
-        ctx.strokeStyle = '#000';
-        ctx.lineWidth   = 1.5;
-        ctx.strokeRect(x + 0.75, y + 0.75, CELL - 1.5, CELL - 1.5);
-      }
-    }
-
-    // composite pre-rendered grid lines
-    ctx.drawImage(gridOff, 0, 0);
-
+    const { alive } = downloadGrid();
     document.getElementById('cellCount').textContent = alive;
     document.getElementById('genCount').textContent  = generation;
   }
 
-  // ── run loop ──────────────────────────────────────────────────────────────────
   function loop(time) {
     if (!running) return;
     const interval = 1000 / stepsPerSec;
     if (time - lastTime >= interval) {
-      // run at most 4 catch-up steps so we don't freeze on tab-switch
       const burst = Math.min(Math.floor((time - lastTime) / interval), 4);
       for (let i = 0; i < burst; i++) step();
       draw();
@@ -310,72 +444,51 @@
 
   // ── mouse ─────────────────────────────────────────────────────────────────────
   let painting = false, paintMode = 1;
-
-  function cellAt(e) {
-    return { r: Math.floor(e.offsetY / CELL), c: Math.floor(e.offsetX / CELL) };
-  }
-
   canvas.addEventListener('mousedown', e => {
-    const { r, c } = cellAt(e);
+    const { grid } = downloadGrid();
+    const r = Math.floor(e.offsetY / CELL), c = Math.floor(e.offsetX / CELL);
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return;
-    paintMode  = grid[r][c] === 0 ? 1 : 0;
-    painting   = true;
+    paintMode = grid[r][c] === 0 ? 1 : 0;
+    painting = true;
     grid[r][c] = paintMode;
+    uploadGrid(grid);
     draw();
   });
   canvas.addEventListener('mousemove', e => {
     if (!painting) return;
-    const { r, c } = cellAt(e);
+    const { grid } = downloadGrid();
+    const r = Math.floor(e.offsetY / CELL), c = Math.floor(e.offsetX / CELL);
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return;
     grid[r][c] = paintMode;
+    uploadGrid(grid);
     draw();
   });
-  canvas.addEventListener('mouseup',    () => { painting = false; });
-  canvas.addEventListener('mouseleave', () => { painting = false; });
-  canvas.addEventListener('dragstart',  e => e.preventDefault());
+  canvas.addEventListener('mouseup', () => painting = false);
+  canvas.addEventListener('mouseleave', () => painting = false);
+  canvas.addEventListener('dragstart', e => e.preventDefault());
 
   // ── buttons ───────────────────────────────────────────────────────────────────
-  function setRunning(val) {
-    running = val;
-    document.getElementById('btnRun').disabled   = val;
-    document.getElementById('btnStep').disabled  = val;
-    document.getElementById('btnStop').disabled  = !val;
-  }
-
-  document.getElementById('btnStep').addEventListener('click', () => { step(); draw(); });
-
-  document.getElementById('btnRun').addEventListener('click', () => {
-    setRunning(true);
-    lastTime = performance.now();
-    animId   = requestAnimationFrame(loop);
-  });
-
-  document.getElementById('btnStop').addEventListener('click', () => {
-    setRunning(false);
-    cancelAnimationFrame(animId);
-  });
-
-  document.getElementById('btnClear').addEventListener('click', () => {
-    setRunning(false);
-    cancelAnimationFrame(animId);
-    grid = makeGrid();
-    generation = 0;
-    draw();
-  });
-
-  document.getElementById('btnRandom').addEventListener('click', () => {
-    for (let r = 0; r < ROWS; r++)
-      for (let c = 0; c < COLS; c++)
-        grid[r][c] = Math.random() < 0.3 ? 1 : 0;
-    draw();
-  });
-
-  // ── speed slider ──────────────────────────────────────────────────────────────
+  const setRunning = v => {
+    running = v;
+    document.getElementById('btnRun').disabled = v;
+    document.getElementById('btnStep').disabled = v;
+    document.getElementById('btnStop').disabled = !v;
+  };
+  document.getElementById('btnStep').onclick = () => { step(); draw(); };
+  document.getElementById('btnRun').onclick = () => { setRunning(true); lastTime = performance.now(); animId = requestAnimationFrame(loop); };
+  document.getElementById('btnStop').onclick = () => { setRunning(false); cancelAnimationFrame(animId); };
+  document.getElementById('btnClear').onclick = () => {
+    setRunning(false); cancelAnimationFrame(animId);
+    uploadGrid(Array.from({ length: ROWS }, () => new Uint8Array(COLS)));
+    generation = 0; draw();
+  };
+  document.getElementById('btnRandom').onclick = () => {
+    const g = Array.from({ length: ROWS }, () => new Uint8Array(COLS));
+    for(let r=0; r<ROWS; r++) for(let c=0; c<COLS; c++) g[r][c] = Math.random() < 0.3 ? 1 : 0;
+    uploadGrid(g); draw();
+  };
   const slider = document.getElementById('speedSlider');
-  slider.addEventListener('input', () => {
-    stepsPerSec = +slider.value;
-    document.getElementById('speedVal').textContent = stepsPerSec;
-  });
+  slider.oninput = () => { stepsPerSec = +slider.value; document.getElementById('speedVal').textContent = stepsPerSec; };
 
   // ── legend ────────────────────────────────────────────────────────────────────
   const legendGrid = document.getElementById('legendGrid');
@@ -386,7 +499,6 @@
     legendGrid.appendChild(el);
   });
 
-  // ── init ──────────────────────────────────────────────────────────────────────
   draw();
 </script>
 </body>

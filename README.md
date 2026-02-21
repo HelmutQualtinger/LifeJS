@@ -38,7 +38,7 @@ Cells are colored by the number of live neighbors:
 
 ## Implementation Notes
 
-All code lives in a single `<script>` block inside `index.html`. The grid is stored as an array of `Uint8Array` rows. Grid lines are pre-rendered onto an offscreen canvas and composited each frame for performance.
+The application uses **WebGL2 GPGPU** to accelerate the simulation. The Game of Life rules are implemented in a fragment shader, using ping-pong textures to update the grid state entirely on the GPU. This allows for smooth performance even with much larger grids. The rendering also happens in WebGL, calculating neighbor counts on the fly for dynamic coloring. Grid state is read back to the CPU only for UI updates and user interaction.
 
 ## License
 
