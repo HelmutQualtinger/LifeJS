@@ -145,6 +145,61 @@
 
     /* hint */
     .hint { font-size: 10px; color: #334; }
+
+    /* Modal Styling */
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(4px);
+      display: none; /* Hidden by default */
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+    .modal-overlay.active { display: flex; }
+
+    .modal-content {
+      background: #1a1a2e;
+      border: 1px solid #2a2a4a;
+      border-radius: 12px;
+      width: 90%;
+      max-width: 500px;
+      padding: 30px;
+      position: relative;
+      color: #dde;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+    }
+
+    .modal-content h2 { margin-bottom: 20px; color: #7ab8f5; border-bottom: 1px solid #2a2a4a; padding-bottom: 10px; }
+    .modal-content h3 { margin: 15px 0 10px 0; font-size: 16px; color: #7ecfff; }
+    .modal-content p { font-size: 14px; line-height: 1.6; margin-bottom: 12px; color: #99a; }
+    .modal-content ul { font-size: 14px; margin-left: 20px; color: #99a; }
+    .modal-content li { margin-bottom: 5px; }
+
+    .modal-close {
+      position: absolute;
+      top: 15px; right: 15px;
+      background: none; border: none;
+      color: #556; font-size: 24px;
+      cursor: pointer;
+    }
+    .modal-close:hover { color: #dde; }
+
+    .conway-portrait {
+      position: fixed;
+      bottom: -30px;
+      right: -30px;
+      width: 45vh;
+      height: 45vh;
+      object-fit: cover;
+      object-position: center 15%;
+      opacity: 0.35;
+      z-index: -1;
+      filter: sepia(100%) hue-rotate(15deg) saturate(400%) contrast(1.3) brightness(1.1);
+      pointer-events: none;
+      border-radius: 15px;
+    }
   </style>
 </head>
 <body>
@@ -182,7 +237,7 @@
     <div class="card">
       <div class="card-title">Geschwindigkeit</div>
       <div class="slider-wrap">
-        <input type="range" id="speedSlider" min="1" max="30" value="8">
+        <input type="range" id="speedSlider" min="1" max="240" value="8">
         <span class="speed-label"><span id="speedVal">8</span>/s</span>
       </div>
     </div>
@@ -192,10 +247,41 @@
       <div class="legend-grid" id="legendGrid"></div>
     </div>
 
+    <div class="card">
+      <button id="btnInfo" style="width: 100%; background: #445; color: #fff;">Spielregeln</button>
+    </div>
+
   </div>
 </div>
 
 <div class="hint">Klicken &amp; ziehen zum Setzen / Löschen</div>
+
+<!-- Modal -->
+<div id="infoModal" class="modal-overlay">
+  <div class="modal-content">
+    <button id="btnCloseModal" class="modal-close">&times;</button>
+    <h2>Conway's Spiel des Lebens</h2>
+    <div class="modal-body">
+      <p>Das "Game of Life" ist ein 1970 von dem britischen Mathematiker <strong>John Horton Conway</strong> entworfenes System zur Simulation biologischer Evolution. Es ist ein "Null-Personen-Spiel", dessen Verlauf durch seinen Anfangszustand bestimmt wird.</p>
+      
+      <h3>Die Regeln</h3>
+      <p>In jeder Generation wird der Zustand jeder Zelle basierend auf ihren 8 Nachbarn berechnet:</p>
+      <ul>
+        <li><strong>Einsamkeit:</strong> Eine lebende Zelle mit &lt; 2 Nachbarn stirbt.</li>
+        <li><strong>Überleben:</strong> Eine lebende Zelle mit 2 oder 3 Nachbarn lebt weiter.</li>
+        <li><strong>Überbevölkerung:</strong> Eine lebende Zelle mit &gt; 3 Nachbarn stirbt.</li>
+        <li><strong>Reproduktion:</strong> Eine tote Zelle mit genau 3 Nachbarn wird lebendig.</li>
+      </ul>
+
+      <h3>Interaktion</h3>
+      <p>Nutzen Sie die Maus, um Zellen auf dem Gitter zu aktivieren oder zu deaktivieren. Mit dem Geschwindigkeitsregler können Sie die Simulationsrate (Generationen pro Sekunde) anpassen.</p>
+      
+      <p style="font-size: 0.9em; margin-top: 1.5em; color: #778;"><em>John Horton Conway (1937–2020)</em></p>
+    </div>
+  </div>
+</div>
+
+<img src="portrait.jpeg" class="conway-portrait" alt="John Conway Portrait">
 
 <script>
   const COLS = 100;
@@ -299,8 +385,8 @@
     if (!running) return;
     const interval = 1000 / stepsPerSec;
     if (time - lastTime >= interval) {
-      // run at most 4 catch-up steps so we don't freeze on tab-switch
-      const burst = Math.min(Math.floor((time - lastTime) / interval), 4);
+      // run at most 8 catch-up steps so we don't freeze on tab-switch
+      const burst = Math.min(Math.floor((time - lastTime) / interval), 8);
       for (let i = 0; i < burst; i++) step();
       draw();
       lastTime = time;
@@ -375,6 +461,26 @@
   slider.addEventListener('input', () => {
     stepsPerSec = +slider.value;
     document.getElementById('speedVal').textContent = stepsPerSec;
+  });
+
+  // ── modal logic ───────────────────────────────────────────────────────────────
+  const infoModal = document.getElementById('infoModal');
+  const btnInfo   = document.getElementById('btnInfo');
+  const btnClose  = document.getElementById('btnCloseModal');
+
+  btnInfo.addEventListener('click', () => {
+    infoModal.classList.add('active');
+  });
+
+  btnClose.addEventListener('click', () => {
+    infoModal.classList.remove('active');
+  });
+
+  // close modal when clicking outside content
+  infoModal.addEventListener('click', (e) => {
+    if (e.target === infoModal) {
+      infoModal.classList.remove('active');
+    }
   });
 
   // ── legend ────────────────────────────────────────────────────────────────────
