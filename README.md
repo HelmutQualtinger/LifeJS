@@ -1,6 +1,6 @@
 # Conway's Game of Life
 
-A minimal, dependency-free implementation of [Conway's Game of Life](https://en.wikipedia.org/wiki/Conway%27s_Game_of_Life) in vanilla JavaScript and HTML5 Canvas.
+A dependency-free implementation of [Conway's Game of Life](https://en.wikipedia.org/wiki/Conway%27s_Game_of_Life) in vanilla JavaScript and **WebGL2** — the simulation runs entirely on the GPU.
 
 ## Demo
 
@@ -8,12 +8,13 @@ Open `index.html` in any modern browser — no build step, no install, no server
 
 ## Features
 
-- **100 × 60 grid** rendered on an HTML5 Canvas
+- **100 × 60 grid** rendered via WebGL2 — simulation and rendering run on the GPU
 - **Draw mode** — click and drag to set or erase cells
 - **Color-coded cells** — live cells are colored by their neighbor count (0–8)
-- **Controls** — Run, Stop, single Step, Clear, and Random seed
-- **Adjustable speed** — 1 to 30 generations per second via slider
+- **Controls** — Run, Stop, single Step, Clear, Random seed, and Gosper Glider Gun
+- **Adjustable speed** — 1 to 480 generations per second via slider
 - **Tab-safe loop** — catches up at most 4 steps after a tab switch to avoid freezing
+- **German UI** — all labels and controls are in German
 
 ## Usage
 
@@ -38,7 +39,7 @@ Cells are colored by the number of live neighbors:
 
 ## Implementation Notes
 
-The application uses **WebGL2 GPGPU** to accelerate the simulation. The Game of Life rules are implemented in a fragment shader, using ping-pong textures to update the grid state entirely on the GPU. This allows for smooth performance even with much larger grids. The rendering also happens in WebGL, calculating neighbor counts on the fly for dynamic coloring. Grid state is read back to the CPU only for UI updates and user interaction.
+The simulation uses a **ping-pong texture** approach: the grid state lives in two `100 × 60` GPU textures (`tex0` / `tex1`). Each generation, a fragment shader (`simFS`) reads from the current texture, applies Conway's rules per texel, and writes the result to the other texture. A second shader (`renderFS`) then colors each pixel on screen based on cell state and neighbor count. Grid state is only read back to the CPU (`gl.readPixels`) for the live-cell counter and for mouse interaction.
 
 ## License
 
