@@ -101,7 +101,78 @@
     #btnClear  { background: #6b7280; color: #fff; }
     #btnRun    { background: #22c55e; color: #fff; }
     #btnStop   { background: #ef4444; color: #fff; }
-    #btnRandom { background: #a855f7; color: #fff; grid-column: span 2; }
+    #btnRandom { background: #a855f7; color: #fff; }
+    #btnGun    { background: #ec4899; color: #fff; }
+    #btnHelp   { background: #f59e0b; color: #fff; }
+
+    /* modal */
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(5px);
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal-content {
+      background: #161630;
+      border: 1px solid #252550;
+      padding: 30px;
+      border-radius: 12px;
+      max-width: 500px;
+      width: 100%;
+      position: relative;
+      color: #dde;
+      line-height: 1.6;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+    }
+    .modal-content h2 { color: #7ab8f5; margin-bottom: 15px; font-size: 20px; }
+    .modal-content h3 { color: #7ecfff; margin-top: 20px; margin-bottom: 10px; font-size: 16px; text-transform: uppercase; letter-spacing: 1px; }
+    .modal-content ul { padding-left: 20px; margin-bottom: 15px; }
+    .modal-content li { margin-bottom: 8px; font-size: 14px; }
+    .close-btn {
+      position: absolute;
+      top: 15px;
+      right: 20px;
+      font-size: 28px;
+      cursor: pointer;
+      color: #445;
+      line-height: 1;
+    }
+    .close-btn:hover { color: #fff; }
+    .example-box {
+      background: #1c1c3c;
+      padding: 12px;
+      border-radius: 6px;
+      margin-bottom: 10px;
+      font-size: 13px;
+      border-left: 3px solid #7ab8f5;
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+    .example-gfx {
+      flex-shrink: 0;
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #0f0f1a;
+      border-radius: 4px;
+      padding: 4px;
+    }
+    .example-gfx svg {
+      width: 100%;
+      height: 100%;
+      fill: #7ecfff;
+    }
 
     /* speed slider */
     .slider-wrap {
@@ -189,6 +260,8 @@
         <button id="btnRun">Run</button>
         <button id="btnStop" disabled>Stop</button>
         <button id="btnRandom">Zufällig</button>
+        <button id="btnGun">Glider Gun</button>
+        <button id="btnHelp">Hilfe</button>
       </div>
     </div>
 
@@ -221,6 +294,35 @@
     </filter>
   </defs>
 </svg>
+
+<div id="helpModal" class="modal">
+  <div class="modal-content">
+    <span class="close-btn" id="closeHelp">&times;</span>
+    <h2>Game of Life</h2>
+    <p>Das "Spiel des Lebens" ist ein zellulärer Automat von John Conway. Es ist ein "Null-Spieler-Spiel", das sich nach festen Regeln von selbst entwickelt.</p>
+    
+    <h3>Die Regeln:</h3>
+    <ul>
+      <li><strong>Überleben:</strong> Jede lebende Zelle mit 2 oder 3 lebenden Nachbarn bleibt am Leben.</li>
+      <li><strong>Tod:</strong> Jede lebende Zelle mit <2 (Einsamkeit) oder >3 (Überbevölkerung) Nachbarn stirbt.</li>
+      <li><strong>Geburt:</strong> Jede tote Zelle mit genau 3 lebenden Nachbarn wird lebendig.</li>
+    </ul>
+
+    <h3>Interessante Muster:</h3>
+    <div class="example-box">
+      <div class="example-gfx"><svg viewBox="0 0 3 3"><rect x="1" y="0" width="0.9" height="0.9" rx="0.1"/><rect x="2" y="1" width="0.9" height="0.9" rx="0.1"/><rect x="0" y="2" width="0.9" height="0.9" rx="0.1"/><rect x="1" y="2" width="0.9" height="0.9" rx="0.1"/><rect x="2" y="2" width="0.9" height="0.9" rx="0.1"/></svg></div>
+      <span><strong>Gleiter (Glider):</strong> Ein kleines Muster, das über das Feld wandert.</span>
+    </div>
+    <div class="example-box">
+      <div class="example-gfx"><svg viewBox="0 0 3 3"><rect x="1" y="0" width="0.9" height="0.9" rx="0.1"/><rect x="1" y="1" width="0.9" height="0.9" rx="0.1"/><rect x="1" y="2" width="0.9" height="0.9" rx="0.1"/></svg></div>
+      <span><strong>Oszillatoren:</strong> Muster wie der "Blinker", die zwischen Zuständen hin- und herwechseln.</span>
+    </div>
+    <div class="example-box">
+      <div class="example-gfx"><svg viewBox="0 0 4 4"><rect x="1" y="1" width="0.9" height="0.9" rx="0.1"/><rect x="2" y="1" width="0.9" height="0.9" rx="0.1"/><rect x="1" y="2" width="0.9" height="0.9" rx="0.1"/><rect x="2" y="2" width="0.9" height="0.9" rx="0.1"/></svg></div>
+      <span><strong>Still-Lifes:</strong> Stabile Muster wie der "Block", die sich nie verändern.</span>
+    </div>
+  </div>
+</div>
 
 <img src="portrait.jpeg" alt="Portrait" class="portrait">
 
@@ -487,6 +589,28 @@ void main() {
     for(let r=0; r<ROWS; r++) for(let c=0; c<COLS; c++) g[r][c] = Math.random() < 0.3 ? 1 : 0;
     uploadGrid(g); draw();
   };
+  document.getElementById('btnGun').onclick = () => {
+    setRunning(false); cancelAnimationFrame(animId);
+    const g = Array.from({ length: ROWS }, () => new Uint8Array(COLS));
+    const gun = [
+      [1, 5], [2, 5], [1, 6], [2, 6], [11, 5], [11, 6], [11, 7], [12, 4], [12, 8], [13, 3], [13, 9], [14, 3], [14, 9], [15, 6], [16, 4], [16, 8], [17, 5], [17, 6], [17, 7], [18, 6], [21, 3], [21, 4], [21, 5], [22, 3], [22, 4], [22, 5], [23, 2], [23, 6], [25, 1], [25, 2], [25, 6], [25, 7], [35, 3], [35, 4], [36, 3], [36, 4]
+    ];
+    // Kanone 1 (Oben links, schießt nach unten rechts)
+    gun.forEach(([x, y]) => { if (y + 2 < ROWS && x + 2 < COLS) g[y + 2][x + 2] = 1; });
+    // Kanone 2 (Leicht versetzt oben rechts, gespiegelt, schießt nach unten links)
+    gun.forEach(([x, y]) => {
+      const mx = (COLS - 1) - (x + 2);
+      const my = y + 22; // Versatz um 20 Reihen nach unten (relativ zur 1. Kanone)
+      if (my < ROWS && mx >= 0) g[my][mx] = 1;
+    });
+    generation = 0; uploadGrid(g); draw();
+  };
+
+  const helpModal = document.getElementById('helpModal');
+  document.getElementById('btnHelp').onclick = () => helpModal.style.display = 'flex';
+  document.getElementById('closeHelp').onclick = () => helpModal.style.display = 'none';
+  window.onclick = e => { if (e.target === helpModal) helpModal.style.display = 'none'; };
+
   const slider = document.getElementById('speedSlider');
   slider.oninput = () => { stepsPerSec = +slider.value; document.getElementById('speedVal').textContent = stepsPerSec; };
 
