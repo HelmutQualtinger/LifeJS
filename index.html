@@ -9,7 +9,7 @@
     body {
       font-family: 'Segoe UI', system-ui, sans-serif;
       background: #0f0f1a;
-      color: #dde;
+      color: #fff;
       min-height: 100vh;
       display: flex;
       flex-direction: column;
@@ -23,7 +23,7 @@
       font-size: 17px;
       letter-spacing: 4px;
       text-transform: uppercase;
-      color: #7ab8f5;
+      color: #90caf9;
     }
 
     .app {
@@ -59,7 +59,7 @@
       font-size: 9px;
       letter-spacing: 2px;
       text-transform: uppercase;
-      color: #445;
+      color: #bbdefb;
       margin-bottom: 10px;
     }
 
@@ -69,11 +69,11 @@
       justify-content: space-between;
       align-items: baseline;
       font-size: 13px;
-      color: #99a;
+      color: #e3f2fd;
       margin-bottom: 5px;
     }
     .stat-row:last-child { margin-bottom: 0; }
-    .stat-val { color: #7ecfff; font-weight: 700; font-size: 15px; }
+    .stat-val { color: #90caf9; font-weight: 700; font-size: 15px; }
 
     /* buttons */
     .btn-grid {
@@ -128,12 +128,12 @@
       max-width: 500px;
       width: 100%;
       position: relative;
-      color: #dde;
+      color: #fff;
       line-height: 1.6;
       box-shadow: 0 20px 50px rgba(0,0,0,0.5);
     }
-    .modal-content h2 { color: #7ab8f5; margin-bottom: 15px; font-size: 20px; }
-    .modal-content h3 { color: #7ecfff; margin-top: 20px; margin-bottom: 10px; font-size: 16px; text-transform: uppercase; letter-spacing: 1px; }
+    .modal-content h2 { color: #90caf9; margin-bottom: 15px; font-size: 20px; }
+    .modal-content h3 { color: #bbdefb; margin-top: 20px; margin-bottom: 10px; font-size: 16px; text-transform: uppercase; letter-spacing: 1px; }
     .modal-content ul { padding-left: 20px; margin-bottom: 15px; }
     .modal-content li { margin-bottom: 8px; font-size: 14px; }
     .close-btn {
@@ -142,7 +142,7 @@
       right: 20px;
       font-size: 28px;
       cursor: pointer;
-      color: #445;
+      color: #99a;
       line-height: 1;
     }
     .close-btn:hover { color: #fff; }
@@ -190,7 +190,7 @@
       min-width: 38px;
       text-align: right;
       font-size: 12px;
-      color: #7ecfff;
+      color: #90caf9;
       font-weight: 700;
     }
 
@@ -212,10 +212,10 @@
       border-radius: 2px;
       border: 1px solid #333;
     }
-    .ln { font-size: 8px; color: #556; }
+    .ln { font-size: 8px; color: #aab; }
 
     /* hint */
-    .hint { font-size: 10px; color: #334; }
+    .hint { font-size: 10px; color: #99a; }
 
     /* portrait */
     .portrait {
@@ -227,7 +227,7 @@
       object-fit: cover;
       border-radius: 50%;
       border: 2px solid #2a2a4a;
-      filter: url(#solarize);
+      filter: contrast(1.1) saturate(1.2);
     }
   </style>
 </head>
@@ -286,10 +286,11 @@
 <svg width="0" height="0" style="position:absolute">
   <defs>
     <filter id="solarize">
+      <feColorMatrix type="saturate" values="1.5" />
       <feComponentTransfer>
-        <feFuncR type="table" tableValues="0 0.2 0.4 0.6 0.8 1 0.8 0.6 0.4 0.2 0"/>
-        <feFuncG type="table" tableValues="0 0.2 0.4 0.6 0.8 1 0.8 0.6 0.4 0.2 0"/>
-        <feFuncB type="table" tableValues="0 0.2 0.4 0.6 0.8 1 0.8 0.6 0.4 0.2 0"/>
+        <feFuncR type="table" tableValues="1 0 1 0 1"/>
+        <feFuncG type="table" tableValues="1 0 1 0 1"/>
+        <feFuncB type="table" tableValues="1 0 1 0 1"/>
       </feComponentTransfer>
     </filter>
   </defs>
