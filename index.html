@@ -428,6 +428,10 @@ void main() {
   if (alive) {
     bool border = sx < 2.0 || sx > CELL_F - 2.0 || sy < 2.0 || sy > CELL_F - 2.0;
     color = border ? vec3(0.0) : nc[n];
+  } else if (n > 0) {
+    float margin = 3.0;
+    bool inner = sx >= margin && sx <= CELL_F - margin && sy >= margin && sy <= CELL_F - margin;
+    if (inner) color = nc[n];
   }
   if (sx < 1.0 || sy < 1.0) color = mix(color, vec3(1.0), 0.28);
   fragColor = vec4(color, 1.0);
