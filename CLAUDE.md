@@ -18,13 +18,13 @@ There are no tests, no linter, no package manager, and no dependencies.
 The entire application lives in a single file: `index.html`. All JS is in a `<script>` block. The simulation runs entirely on the **GPU via WebGL2** — there is no Canvas 2D context. Only vanilla JS, GLSL shaders, and the WebGL2 API are used.
 
 **Grid constants** (top of script):
-- `COLS = 100`, `ROWS = 60`, `CELL = 12` (pixels per cell)
+- `COLS = 200`, `ROWS = 120`, `CELL = 6` (pixels per cell)
 
 **Key sections:**
 
 - **Shaders**: Two GLSL fragment shader programs compiled at startup:
-  - `simFS` — simulation shader: reads the current cell texture, applies Conway rules (survive on 2–3, born on 3), writes the next state to the output texture.
-  - `renderFS` — render shader: maps pixel coordinates to grid cells, colors live cells by neighbor count using `nc[0..8]` (a hardcoded vec3 palette), draws cell borders and grid lines.
+  - `simFS` — simulation shader: reads the current cell texture, applies Conway rules (survive on 2–3, born on 3), uses toroidal wrapping for neighbor lookups `(fc + delta + SIZE) % SIZE`, writes the next state to the output texture.
+  - `renderFS` — render shader: maps pixel coordinates to grid cells, colors live cells by neighbor count using `nc[0..8]` (a hardcoded vec3 palette), draws light grid lines (no cell borders).
 
 - **Ping-pong textures** (`tex0` / `tex1`, `fbo0` / `fbo1`): The grid state lives in two `COLS × ROWS` GPU textures. Each `step()` renders from `currentTex` into `nextFBO`, then `swap()` flips the pointers. The red channel encodes cell state (255 = alive, 0 = dead).
 
@@ -42,6 +42,8 @@ The entire application lives in a single file: `index.html`. All JS is in a `<sc
 
 - **Glider Gun** (`btnGun`): Hardcodes the Gosper Glider Gun pattern and places two mirrored copies on the grid.
 
+- **Save / Load** (`btnSave`, `btnLoad`): Exports the current grid state, survive/birth rules, and generation count as a JSON file. The Load button reads a JSON file and restores the entire state including rules and regenerates the rule UI checkboxes.
+
 ## UI Language
 
-The UI labels are in German (`Lebende Zellen` = live cells, `Generationen` = generations, `Steuerung` = controls, `Geschwindigkeit` = speed, `Nachbarn` = neighbors, `Zufällig` = random, `Hilfe` = help). Keep any new labels in German.
+The UI labels are in German (`Lebende Zellen` = live cells, `Generationen` = generations, `Steuerung` = controls, `Geschwindigkeit` = speed, `Nachbarn` = neighbors, `Zufällig` = random, `Hilfe` = help, `Speichern` = save, `Laden` = load). Keep any new labels in German.

@@ -104,6 +104,8 @@
     #btnRandom { background: #a855f7; color: #fff; }
     #btnGun    { background: #ec4899; color: #fff; }
     #btnHelp   { background: #f59e0b; color: #fff; }
+    #btnSave   { background: #14b8a6; color: #fff; }
+    #btnLoad   { background: #8b5cf6; color: #fff; }
 
     /* modal */
     .modal {
@@ -292,6 +294,8 @@
         <button id="btnRandom">Zufällig</button>
         <button id="btnGun">Glider Gun</button>
         <button id="btnHelp">Hilfe</button>
+        <button id="btnSave">Speichern</button>
+        <button id="btnLoad">Laden</button>
       </div>
     </div>
 
@@ -366,9 +370,9 @@
 <img src="portrait.jpeg" alt="Portrait" class="portrait">
 
 <script>
-  const COLS = 100;
-  const ROWS = 60;
-  const CELL = 12;
+  const COLS = 200;
+  const ROWS = 120;
+  const CELL = 6;
 
   const NEIGHBOR_COLORS = [
     '#cfd8dc', '#80deea', '#4db6ac', '#81c784',
@@ -421,10 +425,8 @@ void main() {
   for(int dy = -1; dy <= 1; dy++) {
     for(int dx = -1; dx <= 1; dx++) {
       if(dx == 0 && dy == 0) continue;
-      ivec2 nb = fc + ivec2(dx, dy);
-      if(nb.x >= 0 && nb.x < SIZE.x && nb.y >= 0 && nb.y < SIZE.y) {
-        if(texelFetch(u_cells, nb, 0).r > 0.5) n++;
-      }
+      ivec2 nb = (fc + ivec2(dx, dy) + SIZE) % SIZE;
+      if(texelFetch(u_cells, nb, 0).r > 0.5) n++;
     }
   }
   bool alive = texelFetch(u_cells, fc, 0).r > 0.5;
@@ -468,8 +470,7 @@ void main() {
   vec3 dead = vec3(0.051, 0.067, 0.090);
   vec3 color = dead;
   if (alive) {
-    bool border = sx < 2.0 || sx > CELL_F - 2.0 || sy < 2.0 || sy > CELL_F - 2.0;
-    color = border ? vec3(0.0) : nc[n];
+    color = nc[n];
   }
   if (sx < 1.0 || sy < 1.0) color = mix(color, vec3(1.0), 0.28);
   fragColor = vec4(color, 1.0);
@@ -659,6 +660,53 @@ void main() {
   document.getElementById('btnHelp').onclick = () => helpModal.style.display = 'flex';
   document.getElementById('closeHelp').onclick = () => helpModal.style.display = 'none';
   window.onclick = e => { if (e.target === helpModal) helpModal.style.display = 'none'; };
+
+  // ── save / load ──────────────────────────────────────────────────────────────
+  document.getElementById('btnSave').onclick = () => {
+    const { grid } = downloadGrid();
+    const rle = [];
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (grid[r][c]) rle.push([r, c]);
+      }
+    }
+    const data = { cols: COLS, rows: ROWS, survive, birth, generation, cells: rle };
+    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'life-pattern.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  document.getElementById('btnLoad').onclick = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = () => {
+      const file = input.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const data = JSON.parse(reader.result);
+        setRunning(false); cancelAnimationFrame(animId);
+        survive = data.survive;
+        birth = data.birth;
+        generation = data.generation || 0;
+        const g = Array.from({ length: ROWS }, () => new Uint8Array(COLS));
+        data.cells.forEach(([r, c]) => { if (r < ROWS && c < COLS) g[r][c] = 1; });
+        uploadGrid(g);
+        // Update rule checkboxes
+        document.getElementById('surviveGrid').innerHTML = '';
+        document.getElementById('birthGrid').innerHTML = '';
+        createRuleGrid('surviveGrid', survive);
+        createRuleGrid('birthGrid', birth);
+        draw();
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  };
 
   const slider = document.getElementById('speedSlider');
   slider.oninput = () => { stepsPerSec = +slider.value; document.getElementById('speedVal').textContent = stepsPerSec; };
